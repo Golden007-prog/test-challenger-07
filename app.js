@@ -31,7 +31,7 @@ class QuizApp {
         this.currentQuestionTime = 0;
 
         // Constants
-        this.QUESTIONS_PER_ROUND = 50;
+        this.QUESTIONS_PER_ROUND = 20;
         this.TOTAL_ROUNDS = 3;
 
         // Initialize
@@ -432,7 +432,7 @@ class QuizApp {
         document.getElementById('lastAccuracy').textContent =
             stats.lastAccuracy !== null ? `${stats.lastAccuracy}%` : '--';
         document.getElementById('bestScore').textContent =
-            stats.bestScore > 0 ? `${stats.bestScore}/150` : '--';
+            stats.bestScore > 0 ? `${stats.bestScore}/${this.QUESTIONS_PER_ROUND * this.TOTAL_ROUNDS}` : '--';
         document.getElementById('totalAttempts').textContent =
             stats.totalAttempts.toString();
     }
@@ -672,6 +672,7 @@ class QuizApp {
 
         // Update results display
         document.getElementById('finalScore').textContent = totalScore;
+        document.getElementById('totalPossible').textContent = totalQuestions;
         document.getElementById('finalAccuracy').textContent = `${accuracy}% Accuracy`;
         document.getElementById('finalTime').textContent = this.formatTime(totalTime);
 

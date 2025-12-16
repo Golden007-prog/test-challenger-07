@@ -105,9 +105,9 @@ class GeminiAnalyzer {
 
 ## Current Quiz Results
 - Total Score: ${totalScore}/${totalQuestions} (${accuracy}% accuracy)
-- Round 1: ${roundScores[0]}/50 questions correct
-- Round 2: ${roundScores[1]}/50 questions correct  
-- Round 3: ${roundScores[2]}/50 questions correct
+- Round 1: ${roundScores[0]}/${totalQuestions/3} questions correct
+- Round 2: ${roundScores[1]}/${totalQuestions/3} questions correct  
+- Round 3: ${roundScores[2]}/${totalQuestions/3} questions correct
 - Round Times: R1: ${roundTimes[0]}, R2: ${roundTimes[1]}, R3: ${roundTimes[2]}
 `;
 

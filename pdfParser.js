@@ -625,9 +625,28 @@ class PDFParser {
 
     /**
      * Get random questions for a round
+     * If there aren't enough unused questions, recycle from all questions
      */
     getRandomQuestions(count, excludeIds = []) {
-        const available = this.questions.filter(q => !excludeIds.includes(q.id));
+        let available = this.questions.filter(q => !excludeIds.includes(q.id));
+        
+        // If not enough unused questions, reset and use all questions
+        if (available.length < count) {
+            // Use whatever unused questions we have, then fill with random from all
+            const unusedShuffled = this.shuffleArray([...available]);
+            const allShuffled = this.shuffleArray([...this.questions]);
+            
+            // Take all unused first, then fill remaining from all questions (may repeat)
+            const result = [...unusedShuffled];
+            const remaining = count - result.length;
+            
+            for (let i = 0; i < remaining && i < allShuffled.length; i++) {
+                result.push(allShuffled[i]);
+            }
+            
+            return this.shuffleArray(result);
+        }
+        
         const shuffled = this.shuffleArray([...available]);
         return shuffled.slice(0, count);
     }

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MCQ Challenge | Tech Quiz</title>
-    <meta name="description" content="Test your technical knowledge with our modern MCQ challenge. 3 rounds, 50 questions each.">
+    <meta name="description" content="Test your technical knowledge with our modern MCQ challenge. 3 rounds, 20 questions each.">
     <link rel="stylesheet" href="styles.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -100,7 +100,7 @@
 
             <div class="logo">MCQ</div>
             <h1 class="title">Tech Challenge</h1>
-            <p class="subtitle">Test your knowledge across 3 rounds of 50 questions each</p>
+            <p class="subtitle">Test your knowledge across 3 rounds of 20 questions each</p>
             
             <div class="stats-preview" id="statsPreview">
                 <div class="stat-item">
@@ -248,7 +248,7 @@
             <div class="results-summary">
                 <div class="results-main">
                     <div class="results-score" id="finalScore">0</div>
-                    <div class="results-total">/ 150</div>
+                    <div class="results-total">/ <span id="totalPossible">60</span></div>
                 </div>
                 <div class="results-accuracy" id="finalAccuracy">0%</div>
                 <div class="results-time">
