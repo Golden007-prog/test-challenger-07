@@ -71,50 +71,191 @@ class PDFParser {
             .replace(/\r\n/g, '\n')
             .trim();
 
-        // Pattern 1: Q1. or Q.1 or 1. or 1) followed by question
-        // Important: Option markers must be preceded by whitespace to avoid matching inside expressions like "(A + B)"
-        const patterns = [
-            // Pattern: Q1. Question text A) option B) option C) option D) option Answer: A
-            // Note: (?:\s|^) ensures option letter is at start or after whitespace
-            /(?:Q\.?\s*)?(\d+)[.\)]\s*(.+?)\s+A[.\)]\s*(.+?)\s+B[.\)]\s*(.+?)\s+C[.\)]\s*(.+?)\s+D[.\)]\s*(.+?)\s*(?:Answer|Ans|ANS|Correct)[:\s]*([A-Da-d])/gi,
-
-            // Pattern: 1. Question (A) option (B) option (C) option (D) option Ans: A
-            /(\d+)[.\)]\s*(.+?)\s+\(A\)\s*(.+?)\s+\(B\)\s*(.+?)\s+\(C\)\s*(.+?)\s+\(D\)\s*(.+?)\s*(?:Answer|Ans|ANS|Correct)[:\s]*([A-Da-d])/gi,
-        ];
-
-        // Try each pattern
-        for (const pattern of patterns) {
-            let match;
-            const tempText = cleanText;
-            pattern.lastIndex = 0;
-
-            while ((match = pattern.exec(tempText)) !== null) {
-                const [_, num, questionText, optA, optB, optC, optD, answer] = match;
-
-                if (questionText && optA && optB && optC && optD && answer) {
-                    questions.push({
-                        id: `${sourcePdf}-${num}`,
-                        number: parseInt(num),
-                        question: this.cleanText(questionText),
-                        options: {
-                            A: this.cleanText(optA),
-                            B: this.cleanText(optB),
-                            C: this.cleanText(optC),
-                            D: this.cleanText(optD)
-                        },
-                        answer: answer.toUpperCase(),
-                        source: sourcePdf
-                    });
-                }
+        // Use a more robust parsing approach - split by question numbers first
+        // Then parse each question block individually
+        const questionBlocks = this.splitIntoQuestionBlocks(cleanText);
+        
+        for (const block of questionBlocks) {
+            const parsed = this.parseQuestionBlock(block, sourcePdf);
+            if (parsed) {
+                questions.push(parsed);
             }
         }
 
-        // If patterns didn't work well, try a more flexible approach
+        // If the block approach didn't work well, fall back to regex patterns
         if (questions.length < 5) {
             return this.parseQuestionsFlexible(cleanText, sourcePdf);
         }
 
         return questions;
+    }
+
+    /**
+     * Split text into question blocks by question numbers
+     */
+    splitIntoQuestionBlocks(text) {
+        const blocks = [];
+        // Match question numbers like "1.", "Q1.", "Q.1", "1)" etc.
+        const regex = /(?:^|\s)(?:Q\.?\s*)?(\d{1,3})[.\)]\s*/gi;
+        let lastIndex = 0;
+        let lastNum = null;
+        let match;
+        
+        const matches = [];
+        while ((match = regex.exec(text)) !== null) {
+            matches.push({
+                index: match.index,
+                num: parseInt(match[1]),
+                length: match[0].length
+            });
+        }
+        
+        for (let i = 0; i < matches.length; i++) {
+            const start = matches[i].index;
+            const end = i < matches.length - 1 ? matches[i + 1].index : text.length;
+            const blockText = text.substring(start, end).trim();
+            if (blockText.length > 30) {
+                blocks.push({
+                    num: matches[i].num,
+                    text: blockText
+                });
+            }
+        }
+        
+        return blocks;
+    }
+
+    /**
+     * Parse a single question block
+     */
+    parseQuestionBlock(block, sourcePdf) {
+        const text = block.text;
+        const num = block.num;
+        
+        // Remove the question number prefix
+        const withoutNum = text.replace(/^(?:Q\.?\s*)?\d{1,3}[.\)]\s*/, '').trim();
+        
+        // Find where options start - look for pattern like " A)" or " (A)" or " A."
+        // But NOT inside parentheses like "(A + B)"
+        let optionsStart = -1;
+        let optionFormat = null;
+        
+        // Try to find first option marker that's NOT inside parentheses
+        // Look for " A)" or " A." preceded by space (not inside expression)
+        const optionMarkerRegex = /(?<=\s)A[.\)]\s*(?=[A-Za-z0-9])/g;
+        const parenOptionRegex = /(?<=\s)\(A\)\s*(?=[A-Za-z0-9])/g;
+        
+        // Simple approach: find "A)" or "(A)" that appears after reasonable question text
+        // and is followed by "B)", "C)", "D)" pattern
+        
+        // Check for A) B) C) D) pattern
+        const abcdMatch = withoutNum.match(/^(.{20,}?)\s+(A[.\)])\s*(.+?)\s+(B[.\)])\s*(.+?)\s+(C[.\)])\s*(.+?)\s+(D[.\)])\s*(.+?)(?:\s*(?:Answer|Ans|ANS|Correct)[:\s]*([A-Da-d]))?$/i);
+        if (abcdMatch) {
+            return {
+                id: `${sourcePdf}-${num}`,
+                number: num,
+                question: this.cleanText(abcdMatch[1]),
+                options: {
+                    A: this.cleanText(abcdMatch[3]),
+                    B: this.cleanText(abcdMatch[5]),
+                    C: this.cleanText(abcdMatch[7]),
+                    D: this.cleanText(abcdMatch[9])
+                },
+                answer: abcdMatch[10] ? abcdMatch[10].toUpperCase() : 'A',
+                source: sourcePdf
+            };
+        }
+        
+        // Check for (A) (B) (C) (D) pattern
+        const parenMatch = withoutNum.match(/^(.{20,}?)\s+\(A\)\s*(.+?)\s+\(B\)\s*(.+?)\s+\(C\)\s*(.+?)\s+\(D\)\s*(.+?)(?:\s*(?:Answer|Ans|ANS|Correct)[:\s]*([A-Da-d]))?$/i);
+        if (parenMatch) {
+            return {
+                id: `${sourcePdf}-${num}`,
+                number: num,
+                question: this.cleanText(parenMatch[1]),
+                options: {
+                    A: this.cleanText(parenMatch[2]),
+                    B: this.cleanText(parenMatch[3]),
+                    C: this.cleanText(parenMatch[4]),
+                    D: this.cleanText(parenMatch[5])
+                },
+                answer: parenMatch[6] ? parenMatch[6].toUpperCase() : 'A',
+                source: sourcePdf
+            };
+        }
+        
+        // Fallback: try a more lenient approach
+        return this.parseQuestionLenient(withoutNum, num, sourcePdf);
+    }
+
+    /**
+     * Lenient question parsing for edge cases
+     */
+    parseQuestionLenient(text, num, sourcePdf) {
+        // Find option markers by looking for consistent pattern
+        // A) ... B) ... C) ... D) or (A) ... (B) ... (C) ... (D)
+        
+        let optA = '', optB = '', optC = '', optD = '', question = '', answer = 'A';
+        
+        // Try to extract answer first
+        const answerMatch = text.match(/(?:Answer|Ans|ANS|Correct)[:\s]*([A-Da-d])\s*$/i);
+        if (answerMatch) {
+            answer = answerMatch[1].toUpperCase();
+            text = text.substring(0, answerMatch.index).trim();
+        }
+        
+        // Find options using split approach - find all A), B), C), D) or (A), (B), (C), (D)
+        // Use a smarter split that respects parenthetical expressions
+        
+        const dMatch = text.match(/\s+(?:D[.\)]|\(D\))\s*(.+?)$/i);
+        if (dMatch) {
+            optD = dMatch[1];
+            text = text.substring(0, dMatch.index).trim();
+        } else {
+            return null;
+        }
+        
+        const cMatch = text.match(/\s+(?:C[.\)]|\(C\))\s*(.+?)$/i);
+        if (cMatch) {
+            optC = cMatch[1];
+            text = text.substring(0, cMatch.index).trim();
+        } else {
+            return null;
+        }
+        
+        const bMatch = text.match(/\s+(?:B[.\)]|\(B\))\s*(.+?)$/i);
+        if (bMatch) {
+            optB = bMatch[1];
+            text = text.substring(0, bMatch.index).trim();
+        } else {
+            return null;
+        }
+        
+        const aMatch = text.match(/\s+(?:A[.\)]|\(A\))\s*(.+?)$/i);
+        if (aMatch) {
+            optA = aMatch[1];
+            question = text.substring(0, aMatch.index).trim();
+        } else {
+            return null;
+        }
+        
+        if (question.length > 10 && optA && optB && optC && optD) {
+            return {
+                id: `${sourcePdf}-${num}`,
+                number: num,
+                question: this.cleanText(question),
+                options: {
+                    A: this.cleanText(optA),
+                    B: this.cleanText(optB),
+                    C: this.cleanText(optC),
+                    D: this.cleanText(optD)
+                },
+                answer: answer,
+                source: sourcePdf
+            };
+        }
+        
+        return null;
     }
 
     /**
@@ -566,6 +707,47 @@ class PDFParser {
         result = result.replace(/iden\s*ti\s*c/gi, 'identic');
         
         // ========================================
+        // ADDITIONAL LIGATURE FIXES
+        // Handle more edge cases for 'tt' patterns
+        // ========================================
+        
+        // More 'tt' word fixes - common words
+        result = result.replace(/\ba\s*tt\s*ack\b/gi, 'attack');
+        result = result.replace(/\ba\s*tt\s*rib/gi, 'attrib');
+        result = result.replace(/\ba\s*tt\s*empt/gi, 'attempt');
+        result = result.replace(/\ba\s*tt\s*ach/gi, 'attach');
+        result = result.replace(/\ba\s*tt\s*end/gi, 'attend');
+        result = result.replace(/\ba\s*tt\s*ention/gi, 'attention');
+        result = result.replace(/\ba\s*tt\s*ain/gi, 'attain');
+        result = result.replace(/\ba\s*tt\s*itude/gi, 'attitude');
+        result = result.replace(/\ba\s*tt\s*orney/gi, 'attorney');
+        result = result.replace(/\ba\s*tt\s*ract/gi, 'attract');
+        
+        // Handle standalone 'a' followed by 'tt' patterns
+        result = result.replace(/\ba\s+tt(?=[aeiou])/gi, 'att');
+        
+        // Handle 'ti' inside common CS/IT terms
+        result = result.replace(/\bauthen\s*ti\s*cat/gi, 'authenticat');
+        result = result.replace(/\bno\s*ti\s*f/gi, 'notif');
+        result = result.replace(/\bmul\s*ti\s*pl/gi, 'multipl');
+        result = result.replace(/\brepe\s*ti\s*t/gi, 'repetit');
+        result = result.replace(/\bpar\s*ti\s*t/gi, 'partit');
+        result = result.replace(/\bcompe\s*ti\s*t/gi, 'competit');
+        result = result.replace(/\bprac\s*ti\s*c/gi, 'practic');
+        result = result.replace(/\bac\s*ti\s*ve/gi, 'active');
+        result = result.replace(/\brela\s*ti\s*on/gi, 'relation');
+        result = result.replace(/\bloca\s*ti\s*on/gi, 'location');
+        result = result.replace(/\bop\s*ti\s*m/gi, 'optim');
+        result = result.replace(/\bexecu\s*ti\s*on/gi, 'execution');
+        result = result.replace(/\bcrea\s*ti\s*on/gi, 'creation');
+        result = result.replace(/\bsta\s*ti\s*c/gi, 'static');
+        result = result.replace(/\bini\s*ti\s*al/gi, 'initial');
+        result = result.replace(/\bpoten\s*ti\s*al/gi, 'potential');
+        result = result.replace(/\bessen\s*ti\s*al/gi, 'essential');
+        result = result.replace(/\bcons\s*ti\s*tu/gi, 'constitu');
+        result = result.replace(/\bdis\s*ti\s*nc/gi, 'distinc');
+        
+        // ========================================
         // FINAL CATCH-ALL: Fix any remaining orphaned ti/tt in middle of words
         // Pattern: wordpart + space + ti/tt + space + wordpart
         // Only matches when ti/tt is clearly orphaned between word parts
@@ -588,6 +770,23 @@ class PDFParser {
         
         // Fix "tt" at end of prefix with space
         result = result.replace(/([a-zA-Z]{1,})\s+tt([a-zA-Z]{2,})/g, '$1tt$2');
+        
+        // Aggressive fix: single letter + space + tt + letter pattern
+        result = result.replace(/\b([a-zA-Z])\s+tt([a-zA-Z]+)\b/g, '$1tt$2');
+        
+        // Aggressive fix: letter + tt + space + letter pattern
+        result = result.replace(/\b([a-zA-Z]+)tt\s+([a-zA-Z])\b/g, '$1tt$2');
+        
+        // Fix patterns where 'ti' appears with special characters around it
+        result = result.replace(/([a-zA-Z]{2,})\s*ti\s*([a-zA-Z]{2,})/g, (match, p1, p2) => {
+            // Only join if it looks like a broken word
+            const combined = p1 + 'ti' + p2;
+            const commonEndings = ['tion', 'tive', 'tic', 'tial', 'tity', 'ting', 'tle'];
+            if (commonEndings.some(e => combined.toLowerCase().includes(e))) {
+                return combined;
+            }
+            return match;
+        });
 
         return result;
     }
