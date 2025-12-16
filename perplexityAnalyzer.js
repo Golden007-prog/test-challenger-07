@@ -1,13 +1,13 @@
 /**
- * Gemini AI Analyzer Module
- * Uses Google's Gemini API to analyze quiz performance and provide insights
+ * Perplexity AI Analyzer Module
+ * Uses Perplexity's Sonar API to analyze quiz performance and provide insights
  */
 
-class GeminiAnalyzer {
+class PerplexityAnalyzer {
     constructor() {
-        this.apiKeyStorage = 'gemini_api_key';
+        this.apiKeyStorage = 'perplexity_api_key';
         this.apiKey = localStorage.getItem(this.apiKeyStorage);
-        this.baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+        this.baseUrl = 'https://api.perplexity.ai/chat/completions';
     }
 
     /**
@@ -55,21 +55,26 @@ class GeminiAnalyzer {
         const prompt = this.buildAnalysisPrompt(quizData);
 
         try {
-            const response = await fetch(`${this.baseUrl}?key=${this.apiKey}`, {
+            const response = await fetch(this.baseUrl, {
                 method: 'POST',
                 headers: {
+                    'Authorization': `Bearer ${this.apiKey}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    contents: [{
-                        parts: [{
-                            text: prompt
-                        }]
-                    }],
-                    generationConfig: {
-                        temperature: 0.7,
-                        maxOutputTokens: 1024
-                    }
+                    model: 'sonar',
+                    messages: [
+                        {
+                            role: 'system',
+                            content: 'You are an expert educational coach analyzing quiz performance. Provide actionable insights in a structured markdown format.'
+                        },
+                        {
+                            role: 'user',
+                            content: prompt
+                        }
+                    ],
+                    temperature: 0.7,
+                    max_tokens: 1024
                 })
             });
 
@@ -79,7 +84,7 @@ class GeminiAnalyzer {
             }
 
             const data = await response.json();
-            const analysisText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            const analysisText = data.choices?.[0]?.message?.content;
 
             if (!analysisText) {
                 throw new Error('No analysis generated');
@@ -90,7 +95,7 @@ class GeminiAnalyzer {
                 analysis: this.parseAnalysis(analysisText)
             };
         } catch (error) {
-            console.error('Gemini analysis error:', error);
+            console.error('Perplexity analysis error:', error);
             return { success: false, error: error.message };
         }
     }
@@ -101,7 +106,7 @@ class GeminiAnalyzer {
     buildAnalysisPrompt(data) {
         const { roundScores, totalScore, totalQuestions, accuracy, roundTimes, previousAttempts } = data;
 
-        let prompt = `You are an expert educational coach analyzing a student's MCQ quiz performance. Provide actionable insights.
+        let prompt = `Analyze this MCQ quiz performance and provide actionable insights.
 
 ## Current Quiz Results
 - Total Score: ${totalScore}/${totalQuestions} (${accuracy}% accuracy)
@@ -159,4 +164,4 @@ Format your response in a structured way using markdown with headers.`;
 }
 
 // Export for use in other modules
-window.GeminiAnalyzer = GeminiAnalyzer;
+window.PerplexityAnalyzer = PerplexityAnalyzer;

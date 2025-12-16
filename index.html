@@ -52,29 +52,29 @@
                     </div>
                 </div>
 
-                <!-- Gemini Section -->
+                <!-- Perplexity Section -->
                 <div class="settings-section">
-                    <h3>🤖 AI Analysis (Gemini)</h3>
+                    <h3>🤖 AI Analysis (Perplexity)</h3>
                     <p class="settings-desc">Get AI-powered insights on your performance.</p>
                     
-                    <div id="geminiNotConfigured" class="auth-section">
-                        <input type="password" id="geminiKeyInput" placeholder="Enter Gemini API Key" class="settings-input">
+                    <div id="perplexityNotConfigured" class="auth-section">
+                        <input type="password" id="perplexityKeyInput" placeholder="Enter Perplexity API Key" class="settings-input">
                         <p class="settings-help">
-                            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">
-                                Get a key from Google AI Studio
+                            <a href="https://www.perplexity.ai/settings/api" target="_blank" rel="noopener">
+                                Get a key from Perplexity Settings
                             </a>
                         </p>
-                        <button class="btn btn-primary" id="geminiSaveBtn">
+                        <button class="btn btn-primary" id="perplexitySaveBtn">
                             <span>Save API Key</span>
                         </button>
                     </div>
 
-                    <div id="geminiConfigured" class="auth-section" style="display: none;">
+                    <div id="perplexityConfigured" class="auth-section" style="display: none;">
                         <div class="config-status">
                             <span class="status-icon">✓</span>
-                            <span>Gemini API configured</span>
+                            <span>Perplexity API configured</span>
                         </div>
-                        <button class="btn btn-outline btn-danger" id="geminiClearBtn">Remove Key</button>
+                        <button class="btn btn-outline btn-danger" id="perplexityClearBtn">Remove Key</button>
                     </div>
                 </div>
             </div>
@@ -299,8 +299,8 @@
                         <!-- Analysis will be rendered here -->
                     </div>
                     <div class="analysis-unavailable" id="analysisUnavailable">
-                        <p>AI analysis requires a Gemini API key.</p>
-                        <button class="btn btn-outline btn-sm" id="setupGeminiBtn">Configure in Settings</button>
+                        <p>AI analysis requires a Perplexity API key.</p>
+                        <button class="btn btn-outline btn-sm" id="setupPerplexityBtn">Configure in Settings</button>
                     </div>
                 </div>
             </div>
@@ -322,7 +322,7 @@
     <script src="pdfParser.js"></script>
     <script src="githubAuth.js"></script>
     <script src="scoreTracker.js"></script>
-    <script src="geminiAnalyzer.js"></script>
+    <script src="perplexityAnalyzer.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

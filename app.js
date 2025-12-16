@@ -9,7 +9,7 @@ class QuizApp {
         this.scoreTracker = new ScoreTracker();
         this.githubAuth = new GitHubAuth();
         this.gistDatabase = new GistDatabase(this.githubAuth);
-        this.geminiAnalyzer = new GeminiAnalyzer();
+        this.perplexityAnalyzer = new PerplexityAnalyzer();
 
         // Quiz state
         this.questions = [];
@@ -57,7 +57,7 @@ class QuizApp {
 
         // Update UI based on auth status
         this.updateAuthUI();
-        this.updateGeminiUI();
+        this.updatePerplexityUI();
 
         // Listen for sync status changes
         window.addEventListener('syncStatusChange', (e) => {
@@ -98,10 +98,10 @@ class QuizApp {
         document.getElementById('githubLoginBtn').addEventListener('click', () => this.handleGitHubLogin());
         document.getElementById('githubLogoutBtn').addEventListener('click', () => this.handleGitHubLogout());
 
-        // Gemini settings
-        document.getElementById('geminiSaveBtn').addEventListener('click', () => this.handleGeminiSave());
-        document.getElementById('geminiClearBtn').addEventListener('click', () => this.handleGeminiClear());
-        document.getElementById('setupGeminiBtn').addEventListener('click', () => this.openSettings());
+        // Perplexity settings
+        document.getElementById('perplexitySaveBtn').addEventListener('click', () => this.handlePerplexitySave());
+        document.getElementById('perplexityClearBtn').addEventListener('click', () => this.handlePerplexityClear());
+        document.getElementById('setupPerplexityBtn').addEventListener('click', () => this.openSettings());
         document.getElementById('reanalyzeBtn').addEventListener('click', () => this.runAnalysis());
     }
 
@@ -232,42 +232,42 @@ class QuizApp {
     }
 
     // ========================================
-    // GEMINI SETTINGS METHODS
+    // PERPLEXITY SETTINGS METHODS
     // ========================================
 
     /**
-     * Handle Gemini API key save
+     * Handle Perplexity API key save
      */
-    handleGeminiSave() {
-        const keyInput = document.getElementById('geminiKeyInput');
+    handlePerplexitySave() {
+        const keyInput = document.getElementById('perplexityKeyInput');
         const key = keyInput.value.trim();
 
         if (!key) {
-            alert('Please enter a Gemini API key');
+            alert('Please enter a Perplexity API key');
             return;
         }
 
-        this.geminiAnalyzer.setApiKey(key);
+        this.perplexityAnalyzer.setApiKey(key);
         keyInput.value = '';
-        this.updateGeminiUI();
+        this.updatePerplexityUI();
     }
 
     /**
-     * Handle Gemini API key clear
+     * Handle Perplexity API key clear
      */
-    handleGeminiClear() {
-        this.geminiAnalyzer.clearApiKey();
-        this.updateGeminiUI();
+    handlePerplexityClear() {
+        this.perplexityAnalyzer.clearApiKey();
+        this.updatePerplexityUI();
     }
 
     /**
-     * Update Gemini UI based on configuration
+     * Update Perplexity UI based on configuration
      */
-    updateGeminiUI() {
-        const notConfigured = document.getElementById('geminiNotConfigured');
-        const configured = document.getElementById('geminiConfigured');
+    updatePerplexityUI() {
+        const notConfigured = document.getElementById('perplexityNotConfigured');
+        const configured = document.getElementById('perplexityConfigured');
 
-        if (this.geminiAnalyzer.isConfigured()) {
+        if (this.perplexityAnalyzer.isConfigured()) {
             notConfigured.style.display = 'none';
             configured.style.display = 'flex';
         } else {
@@ -285,7 +285,7 @@ class QuizApp {
         const result = document.getElementById('analysisResult');
         const reanalyzeBtn = document.getElementById('reanalyzeBtn');
 
-        if (this.geminiAnalyzer.isConfigured()) {
+        if (this.perplexityAnalyzer.isConfigured()) {
             unavailable.style.display = 'none';
             reanalyzeBtn.style.display = 'inline-flex';
         } else {
@@ -325,7 +325,7 @@ class QuizApp {
             previousAttempts: this.scoreTracker.getAllAttempts().slice(1) // Exclude current
         };
 
-        const response = await this.geminiAnalyzer.analyzePerformance(quizData);
+        const response = await this.perplexityAnalyzer.analyzePerformance(quizData);
 
         loading.style.display = 'none';
 
@@ -562,6 +562,11 @@ class QuizApp {
             const optLetter = opt.dataset.letter;
             opt.style.pointerEvents = 'none';
 
+            // Add 'selected' class to the clicked option
+            if (optLetter === letter) {
+                opt.classList.add('selected');
+            }
+
             if (optLetter === question.answer) {
                 opt.classList.add('correct');
             } else if (optLetter === letter && letter !== question.answer) {
@@ -623,11 +628,19 @@ class QuizApp {
         if (this.currentRound < this.TOTAL_ROUNDS) {
             document.getElementById('nextRoundNum').textContent = this.currentRound + 1;
             document.getElementById('nextRoundBtn').style.display = 'inline-flex';
+            // Remove finish button if it exists
+            const existingFinishBtn = document.getElementById('finishQuizBtn');
+            if (existingFinishBtn) existingFinishBtn.remove();
         } else {
             document.getElementById('nextRoundBtn').style.display = 'none';
+            // Remove existing finish button first to prevent duplicates
+            const existingFinishBtn = document.getElementById('finishQuizBtn');
+            if (existingFinishBtn) existingFinishBtn.remove();
+            
             // Add finish button
             const container = document.querySelector('#roundComplete .container');
             const finishBtn = document.createElement('button');
+            finishBtn.id = 'finishQuizBtn';
             finishBtn.className = 'btn btn-primary';
             finishBtn.innerHTML = `
                 <span>View Results</span>
@@ -646,8 +659,8 @@ class QuizApp {
      * Start next round
      */
     startNextRound() {
-        // Remove any finish button from previous
-        const finishBtn = document.querySelector('#roundComplete .btn-primary:not(#nextRoundBtn)');
+        // Remove the finish button if it exists
+        const finishBtn = document.getElementById('finishQuizBtn');
         if (finishBtn) finishBtn.remove();
 
         this.currentRound++;
@@ -700,7 +713,7 @@ class QuizApp {
 
         // Update analysis UI and run if configured
         this.updateAnalysisUI();
-        if (this.geminiAnalyzer.isConfigured()) {
+        if (this.perplexityAnalyzer.isConfigured()) {
             this.runAnalysis();
         }
 

@@ -133,75 +133,164 @@ class PDFParser {
         const num = block.num;
         
         // Remove the question number prefix
-        const withoutNum = text.replace(/^(?:Q\.?\s*)?\d{1,3}[.\)]\s*/, '').trim();
+        let withoutNum = text.replace(/^(?:Q\.?\s*)?\d{1,3}[.\)]\s*/, '').trim();
         
-        // Find where options start - look for pattern like " A)" or " (A)" or " A."
-        // But NOT inside parentheses like "(A + B)"
-        let optionsStart = -1;
-        let optionFormat = null;
-        
-        // Try to find first option marker that's NOT inside parentheses
-        // Look for " A)" or " A." preceded by space (not inside expression)
-        const optionMarkerRegex = /(?<=\s)A[.\)]\s*(?=[A-Za-z0-9])/g;
-        const parenOptionRegex = /(?<=\s)\(A\)\s*(?=[A-Za-z0-9])/g;
-        
-        // Simple approach: find "A)" or "(A)" that appears after reasonable question text
-        // and is followed by "B)", "C)", "D)" pattern
-        
-        // Check for A) B) C) D) pattern
-        const abcdMatch = withoutNum.match(/^(.{20,}?)\s+(A[.\)])\s*(.+?)\s+(B[.\)])\s*(.+?)\s+(C[.\)])\s*(.+?)\s+(D[.\)])\s*(.+?)(?:\s*(?:Answer|Ans|ANS|Correct)[:\s]*([A-Da-d]))?$/i);
-        if (abcdMatch) {
-            return {
-                id: `${sourcePdf}-${num}`,
-                number: num,
-                question: this.cleanText(abcdMatch[1]),
-                options: {
-                    A: this.cleanText(abcdMatch[3]),
-                    B: this.cleanText(abcdMatch[5]),
-                    C: this.cleanText(abcdMatch[7]),
-                    D: this.cleanText(abcdMatch[9])
-                },
-                answer: abcdMatch[10] ? abcdMatch[10].toUpperCase() : 'A',
-                source: sourcePdf
-            };
+        // STEP 1: Extract the answer FIRST before processing options
+        let extractedAnswer = null;
+        const answerRegex = /\s*(?:Answer|Ans|ANS|Correct)\s*[:\s]\s*([A-Da-d])\s*[.\)]/i;
+        const answerMatch = withoutNum.match(answerRegex);
+        if (answerMatch) {
+            extractedAnswer = answerMatch[1].toUpperCase();
+            // Remove the Answer: X) and everything after it (Explanation, etc.)
+            withoutNum = withoutNum.substring(0, answerMatch.index).trim();
         }
         
-        // Check for (A) (B) (C) (D) pattern
-        const parenMatch = withoutNum.match(/^(.{20,}?)\s+\(A\)\s*(.+?)\s+\(B\)\s*(.+?)\s+\(C\)\s*(.+?)\s+\(D\)\s*(.+?)(?:\s*(?:Answer|Ans|ANS|Correct)[:\s]*([A-Da-d]))?$/i);
-        if (parenMatch) {
-            return {
-                id: `${sourcePdf}-${num}`,
-                number: num,
-                question: this.cleanText(parenMatch[1]),
-                options: {
-                    A: this.cleanText(parenMatch[2]),
-                    B: this.cleanText(parenMatch[3]),
-                    C: this.cleanText(parenMatch[4]),
-                    D: this.cleanText(parenMatch[5])
-                },
-                answer: parenMatch[6] ? parenMatch[6].toUpperCase() : 'A',
-                source: sourcePdf
-            };
+        // Also try to remove "Explanation:" and anything after it
+        const explIndex = withoutNum.search(/\s*Explanation\s*:/i);
+        if (explIndex !== -1) {
+            withoutNum = withoutNum.substring(0, explIndex).trim();
+        }
+        
+        // STEP 2: Use sequential parsing to find options properly
+        // This handles cases where expressions contain letter+paren like (A + B)'
+        const result = this.parseOptionsSequentially(withoutNum, num, sourcePdf, extractedAnswer);
+        if (result) {
+            return result;
         }
         
         // Fallback: try a more lenient approach
-        return this.parseQuestionLenient(withoutNum, num, sourcePdf);
+        return this.parseQuestionLenient(withoutNum, num, sourcePdf, extractedAnswer);
+    }
+
+    /**
+     * Parse options sequentially - handles math expressions correctly
+     */
+    parseOptionsSequentially(text, num, sourcePdf, extractedAnswer) {
+        // Find all potential option markers
+        // Real option markers typically have: double-space before, or appear after end-of-text chars
+        // NOT after operators like +, -, *, /
+        
+        const optionPositions = [];
+        
+        // Look for pattern: whitespace + letter + ) or . + content  
+        // We'll filter out false positives below
+        const markerRegex = /(?:^|\s)([A-D])[.\)]\s*/gi;
+        let match;
+        
+        while ((match = markerRegex.exec(text)) !== null) {
+            const pos = match.index;
+            const letter = match[1].toUpperCase();
+            
+            // Check what comes before the whitespace
+            // Real option markers have 2+ spaces, or appear after typical end-of-option chars
+            const charBeforeSpace = pos > 0 ? text[pos - 1] : '';
+            const twoCharsBefore = pos > 1 ? text.substring(pos - 2, pos) : '';
+            
+            // Skip if preceded by a math operator (part of expression like "A + B)")
+            if (/[+\-*/=]/.test(charBeforeSpace)) {
+                continue;
+            }
+            
+            // Skip if INSIDE parentheses (more opens than closes before this position)
+            const beforeText = text.substring(0, pos);
+            const opens = (beforeText.match(/\(/g) || []).length;
+            const closes = (beforeText.match(/\)/g) || []).length;
+            if (opens > closes) {
+                continue;
+            }
+            
+            // Skip if preceded by a letter without space (like "AB)")
+            if (/[A-Za-z]/.test(charBeforeSpace)) {
+                continue;
+            }
+            
+            // For option A, accept start of string or after question mark/colon
+            // For options B, C, D - prefer double-space or after closing paren/quote
+            if (letter !== 'A') {
+                // Check if we have double-space OR end-of-previous-option char
+                const hasDoubleSpace = /\s$/.test(twoCharsBefore);
+                const afterEndChar = /[)'\"\d]$/.test(charBeforeSpace);
+                
+                // If neither double-space nor end-char, skip
+                if (!hasDoubleSpace && !afterEndChar && pos > 0) {
+                    continue;
+                }
+            }
+            
+            optionPositions.push({
+                letter: letter,
+                start: pos + match[0].indexOf(match[1]),
+                contentStart: pos + match[0].length
+            });
+        }
+        
+        // We need exactly 4 options (A, B, C, D) in order
+        const orderedOptions = ['A', 'B', 'C', 'D'];
+        const foundOptions = {};
+        
+        for (const opt of optionPositions) {
+            if (!foundOptions[opt.letter]) {
+                foundOptions[opt.letter] = opt;
+            }
+        }
+        
+        // Check we have all 4 options
+        if (!foundOptions.A || !foundOptions.B || !foundOptions.C || !foundOptions.D) {
+            return null;
+        }
+        
+        // Sort by position
+        const sorted = [foundOptions.A, foundOptions.B, foundOptions.C, foundOptions.D];
+        sorted.sort((a, b) => a.start - b.start);
+        
+        // Verify they're in order A, B, C, D
+        if (sorted[0].letter !== 'A' || sorted[1].letter !== 'B' || 
+            sorted[2].letter !== 'C' || sorted[3].letter !== 'D') {
+            return null;
+        }
+        
+        // Extract question (before option A) and options
+        const question = text.substring(0, sorted[0].start).trim();
+        const optA = text.substring(sorted[0].contentStart, sorted[1].start).trim();
+        const optB = text.substring(sorted[1].contentStart, sorted[2].start).trim();
+        const optC = text.substring(sorted[2].contentStart, sorted[3].start).trim();
+        const optD = text.substring(sorted[3].contentStart).trim();
+        
+        if (question.length > 10 && optA && optB && optC && optD) {
+            return {
+                id: `${sourcePdf}-${num}`,
+                number: num,
+                question: this.cleanText(question),
+                options: {
+                    A: this.cleanOption(optA),
+                    B: this.cleanOption(optB),
+                    C: this.cleanOption(optC),
+                    D: this.cleanOption(optD)
+                },
+                answer: extractedAnswer || 'A',
+                source: sourcePdf
+            };
+        }
+        
+        return null;
     }
 
     /**
      * Lenient question parsing for edge cases
      */
-    parseQuestionLenient(text, num, sourcePdf) {
+    parseQuestionLenient(text, num, sourcePdf, preExtractedAnswer = null) {
         // Find option markers by looking for consistent pattern
         // A) ... B) ... C) ... D) or (A) ... (B) ... (C) ... (D)
         
-        let optA = '', optB = '', optC = '', optD = '', question = '', answer = 'A';
+        let optA = '', optB = '', optC = '', optD = '', question = '', answer = preExtractedAnswer || 'A';
         
-        // Try to extract answer first
-        const answerMatch = text.match(/(?:Answer|Ans|ANS|Correct)[:\s]*([A-Da-d])\s*$/i);
-        if (answerMatch) {
-            answer = answerMatch[1].toUpperCase();
-            text = text.substring(0, answerMatch.index).trim();
+        // Only try to extract answer if not already provided
+        if (!preExtractedAnswer) {
+            const answerMatch = text.match(/(?:Answer|Ans|ANS|Correct)[:\s]*([A-Da-d])[\s.\)]*(?:Explanation)?/i);
+            if (answerMatch) {
+                answer = answerMatch[1].toUpperCase();
+                text = text.substring(0, answerMatch.index).trim();
+            }
         }
         
         // Find options using split approach - find all A), B), C), D) or (A), (B), (C), (D)
@@ -245,10 +334,10 @@ class PDFParser {
                 number: num,
                 question: this.cleanText(question),
                 options: {
-                    A: this.cleanText(optA),
-                    B: this.cleanText(optB),
-                    C: this.cleanText(optC),
-                    D: this.cleanText(optD)
+                    A: this.cleanOption(optA),
+                    B: this.cleanOption(optB),
+                    C: this.cleanOption(optC),
+                    D: this.cleanOption(optD)
                 },
                 answer: answer,
                 source: sourcePdf
@@ -300,10 +389,10 @@ class PDFParser {
                                 number: num,
                                 question: this.cleanText(questionText),
                                 options: {
-                                    A: this.cleanText(optMatch[2] || ''),
-                                    B: this.cleanText(optMatch[3] || ''),
-                                    C: this.cleanText(optMatch[4] || ''),
-                                    D: this.cleanText(optMatch[5] || '')
+                                    A: this.cleanOption(optMatch[2] || ''),
+                                    B: this.cleanOption(optMatch[3] || ''),
+                                    C: this.cleanOption(optMatch[4] || ''),
+                                    D: this.cleanOption(optMatch[5] || '')
                                 },
                                 answer: optMatch[6] ? optMatch[6].toUpperCase() : 'A',
                                 source: sourcePdf
@@ -328,6 +417,19 @@ class PDFParser {
 
         let result = text;
 
+        // First normalize all whitespace to regular spaces
+        result = result.replace(/\u00A0/g, ' ');  // Non-breaking space
+        result = result.replace(/\u2003/g, ' ');  // Em space
+        result = result.replace(/\u2002/g, ' ');  // En space
+        result = result.replace(/\u2009/g, ' ');  // Thin space
+        result = result.replace(/\u200B/g, '');   // Zero-width space
+        result = result.replace(/\u00AD/g, '');   // Soft hyphen
+        result = result.replace(/\uFEFF/g, '');   // BOM
+
+        // Replace Greek eta (commonly misread for 'tf' ligature - e.g. printf)
+        result = result.replace(/\u03B7/g, 'tf'); // η Small Eta
+        result = result.replace(/\u0397/g, 'tf'); // Η Capital Eta
+
         // Replace Greek theta (commonly misread for 'ti' ligature) 
         result = result.replace(/\u0398/g, 'ti');  // Θ Capital Theta
         result = result.replace(/\u03B8/g, 'ti');  // θ Small Theta
@@ -342,15 +444,65 @@ class PDFParser {
         // Replace O with tilde (commonly misread for 'ft' ligature)
         result = result.replace(/\u00D5/g, 'ft');  // Õ Capital O with Tilde
         result = result.replace(/\u00F5/g, 'ft');  // õ Small O with Tilde
+        
+        // Replace O with macron (commonly misread for 'ft' ligature)
+        result = result.replace(/\u014C/g, 'ft');  // Ō Capital O with Macron
+        result = result.replace(/\u014D/g, 'ft');  // ō Small O with Macron
 
         // Replace other common misread characters
         result = result.replace(/\u0192/g, 'f');   // ƒ function symbol
         result = result.replace(/\u00B5/g, 'u');   // µ micro sign
         
-        // Fix common 'ft' words before ligature replacement
+        // ========================================
+        // IMMEDIATE FIX: Common words with Greek letter replacements
+        // Fix these RIGHT AFTER Greek letter replacement to catch "a tt ack" patterns
+        // ========================================
+        
+        // FULL WORD PATTERNS - match any non-letter between word parts
+        // Use [^\w] to catch any unusual character including Greek letters
+        result = result.replace(/\ba\s*[^\w\s]\s*ributes?\b/gi, 'attributes');
+        result = result.replace(/\ba\s*[^\w\s]\s*ack\b/gi, 'attack');
+        result = result.replace(/\ba\s*[^\w\s]\s*empt/gi, 'attempt');
+        result = result.replace(/\ba\s*[^\w\s]\s*ach/gi, 'attach');
+        result = result.replace(/\ba\s*[^\w\s]\s*end/gi, 'attend');
+        result = result.replace(/\ba\s*[^\w\s]\s*ract/gi, 'attract');
+        result = result.replace(/\bso\s*[^\w\s]\s*ware\b/gi, 'software');
+        result = result.replace(/\ble\s*[^\w\s]\b/gi, 'left');
+        
+        // CRITICAL: Match words with the ORIGINAL Greek characters using Unicode escapes
+        // Sigma Σ = \u03A3, O-tilde Õ = \u00D5, Theta Θ = \u0398, Eta η = \u03B7
+        result = result.replace(/a\s*\u03A3\s*ack/gi, 'attack');
+        result = result.replace(/a\s*\u03A3\s*rib/gi, 'attrib');
+        result = result.replace(/a\s*\u03A3\s*empt/gi, 'attempt');
+        result = result.replace(/a\s*\u03A3\s*ach/gi, 'attach');
+        result = result.replace(/a\s*\u03A3\s*end/gi, 'attend');
+        result = result.replace(/a\s*\u03A3\s*en/gi, 'atten');
+        result = result.replace(/a\s*\u03A3\s*ract/gi, 'attract');
+        result = result.replace(/so\s*\u00D5\s*ware/gi, 'software');
+        result = result.replace(/u\s*ti\s*liza/gi, 'utiliza');
+        result = result.replace(/u\s*\u0398\s*liza/gi, 'utiliza');
+        
+        // Fix 'tf' words (from Eta replacement)
+        result = result.replace(/prin\s*tf/gi, 'printf');
+        result = result.replace(/prin\s*\u03B7/gi, 'printf');
+        result = result.replace(/sprin\s*tf/gi, 'sprintf');
+        result = result.replace(/scan\s*tf/gi, 'scanf');
+        result = result.replace(/f\s*scan\s*tf/gi, 'fscanf');
+        result = result.replace(/s\s*scan\s*tf/gi, 'sscanf');
+        
+        // Fix 'ft' words - match with O-macron (Ō = \u014C) which is actual PDF character
+        result = result.replace(/so\s*\u014C\s*ware/gi, 'software');
+        result = result.replace(/le\s*\u014C/gi, 'left');
+        result = result.replace(/a\s*\u014C\s*er/gi, 'after');
+        result = result.replace(/shi\s*\u014C/gi, 'shift');
+        result = result.replace(/dra\s*\u014C/gi, 'draft');
+        result = result.replace(/cra\s*\u014C/gi, 'craft');
+        result = result.replace(/swi\s*\u014C/gi, 'swift');
+        result = result.replace(/li\s*\u014C/gi, 'lift');
+        result = result.replace(/gi\s*\u014C/gi, 'gift');
+        
+        // Fix 'ft' words (from O-tilde replacement) - must be immediate
         result = result.replace(/so\s*ft\s*ware/gi, 'software');
-        result = result.replace(/so\s*Õ\s*ware/gi, 'software');
-        result = result.replace(/hard\s*ware/gi, 'hardware');
         result = result.replace(/a\s*ft\s*er/gi, 'after');
         result = result.replace(/le\s*ft/gi, 'left');
         result = result.replace(/shi\s*ft/gi, 'shift');
@@ -359,6 +511,52 @@ class PDFParser {
         result = result.replace(/swi\s*ft/gi, 'swift');
         result = result.replace(/li\s*ft/gi, 'lift');
         result = result.replace(/gi\s*ft/gi, 'gift');
+        
+        // Fix 'tt' words (from Sigma replacement) - must be immediate
+        result = result.replace(/a\s*tt\s*ack/gi, 'attack');
+        result = result.replace(/a\s*tt\s*rib/gi, 'attrib');
+        result = result.replace(/a\s*tt\s*empt/gi, 'attempt');
+        result = result.replace(/a\s*tt\s*ach/gi, 'attach');
+        result = result.replace(/a\s*tt\s*end/gi, 'attend');
+        result = result.replace(/a\s*tt\s*ention/gi, 'attention');
+        result = result.replace(/a\s*tt\s*ain/gi, 'attain');
+        result = result.replace(/a\s*tt\s*ract/gi, 'attract');
+        result = result.replace(/a\s*tt\s*itude/gi, 'attitude');
+        result = result.replace(/be\s*tt\s*er/gi, 'better');
+        result = result.replace(/bu\s*tt\s*on/gi, 'button');
+        result = result.replace(/le\s*tt\s*er/gi, 'letter');
+        result = result.replace(/pa\s*tt\s*ern/gi, 'pattern');
+        result = result.replace(/ma\s*tt\s*er/gi, 'matter');
+        result = result.replace(/li\s*tt\s*le/gi, 'little');
+        result = result.replace(/bo\s*tt\s*om/gi, 'bottom');
+        result = result.replace(/bo\s*tt\s*le/gi, 'bottle');
+        result = result.replace(/ba\s*tt\s*le/gi, 'battle');
+        result = result.replace(/se\s*tt\s*ing/gi, 'setting');
+        result = result.replace(/ge\s*tt\s*ing/gi, 'getting');
+        result = result.replace(/pu\s*tt\s*ing/gi, 'putting');
+        result = result.replace(/wri\s*tt\s*en/gi, 'written');
+        result = result.replace(/ne\s*tt\s*work/gi, 'network');
+
+        // Standard ligatures
+        result = result.replace(/\ufb01/g, 'fi');
+        result = result.replace(/\ufb02/g, 'fl');
+        result = result.replace(/\ufb03/g, 'ffi');
+        result = result.replace(/\ufb04/g, 'ffl');
+        result = result.replace(/\ufb05/g, 'st');
+        result = result.replace(/\ufb06/g, 'st');
+
+        // Curly quotes to straight quotes
+        result = result.replace(/\u2018/g, "'");
+        result = result.replace(/\u2019/g, "'");
+        result = result.replace(/\u201C/g, '"');
+        result = result.replace(/\u201D/g, '"');
+
+        // Dashes and special chars
+        result = result.replace(/\u2013/g, '-');
+        result = result.replace(/\u2014/g, '-');
+        result = result.replace(/\u2026/g, '...');
+
+        // Fix words with 'tt' (additional patterns)
 
         // Standard ligatures
         result = result.replace(/\ufb01/g, 'fi');
@@ -813,6 +1011,47 @@ class PDFParser {
             .trim();
 
         return result;
+    }
+
+    /**
+     * Clean option text - removes embedded answers and explanations
+     */
+    cleanOption(text) {
+        if (!text) return '';
+        
+        let result = this.cleanText(text);
+        
+        // Remove "Answer: X)" and everything after it
+        result = result.replace(/\s*Answer\s*:\s*[A-Da-d]\s*\).*$/i, '');
+        result = result.replace(/\s*Ans\s*:\s*[A-Da-d]\s*\).*$/i, '');
+        result = result.replace(/\s*ANS\s*:\s*[A-Da-d]\s*\).*$/i, '');
+        result = result.replace(/\s*Correct\s*:\s*[A-Da-d]\s*\).*$/i, '');
+        
+        // Remove "Explanation:" and everything after it
+        result = result.replace(/\s*Explanation\s*:.*$/i, '');
+        result = result.replace(/\s*Exp\s*:.*$/i, '');
+        
+        // Remove standalone "Answer: X" at the end
+        result = result.replace(/\s*Answer\s*:\s*[A-Da-d]\s*$/i, '');
+        result = result.replace(/\s*Ans\s*:\s*[A-Da-d]\s*$/i, '');
+        
+        // Escape HTML entities to prevent tags like <br> from being interpreted
+        result = this.escapeHtml(result);
+        
+        return result.trim();
+    }
+
+    /**
+     * Escape HTML special characters to prevent rendering
+     */
+    escapeHtml(text) {
+        if (!text) return '';
+        return text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     /**
